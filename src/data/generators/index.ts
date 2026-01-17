@@ -72,7 +72,7 @@ function calculateRiskLevel(metrics: PotMetrics): RiskLevel {
 }
 
 // Calculate AI score (inverse of risk)
-function calculateAiScore(riskLevel: RiskLevel, _metrics: PotMetrics): number {
+function calculateAiScore(riskLevel: RiskLevel): number {
   const baseScores: Record<RiskLevel, number> = {
     critical: 20,
     high: 40,
@@ -192,7 +192,7 @@ export function generatePots(): Pot[] {
     { risk: 'shutdown', count: 10 },
   ];
 
-  let riskAssignments: RiskLevel[] = [];
+  const riskAssignments: RiskLevel[] = [];
   distribution.forEach(({ risk, count }) => {
     for (let i = 0; i < count; i++) {
       riskAssignments.push(risk);
@@ -229,7 +229,7 @@ export function generatePots(): Pot[] {
           startDate: formatDate(startDate),
           lastTapDate: formatDate(subtractDays(today, lastTapDaysAgo)),
           riskLevel: actualRisk,
-          aiScore: calculateAiScore(actualRisk, metrics),
+          aiScore: calculateAiScore(actualRisk),
           metrics,
           trend: generateTrend(30, metrics),
           status: targetRisk === 'shutdown' ? 'shutdown' : 'active',

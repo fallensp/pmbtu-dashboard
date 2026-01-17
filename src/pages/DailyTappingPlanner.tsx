@@ -70,6 +70,7 @@ export function DailyTappingPlanner() {
     if (crucibles.length === 0) {
       setCrucibles(mockCruciblesV2);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Get current selected crucible
@@ -103,7 +104,7 @@ export function DailyTappingPlanner() {
 
     // Add pots until weight limit or pot limit
     let currentWeight = crucible.totalWeight;
-    let potsToAdd: PotAssignment[] = [];
+    const potsToAdd: PotAssignment[] = [];
 
     for (const pot of eligiblePots) {
       if (crucible.pots.length + potsToAdd.length >= 6) break;
