@@ -1,246 +1,329 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { PageHeader } from '@/components/layout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
+import { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { mockCrucibleAssignments } from '@/data/mock';
-import { cn } from '@/lib/utils';
-import {
-  CheckCircle2,
+  CheckCircle,
   XCircle,
   Sparkles,
-  Plus,
-  Download,
-  Printer,
   Edit,
+  Download,
+  RefreshCw,
+  Truck,
+  ChevronRight,
 } from 'lucide-react';
+import { PageHeader } from '@/components/layout';
+import { Button } from '@/components/ui/button';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { StatusBadge } from '@/components/shared/StatusBadge';
+import { generateTappingArrangement } from '@/data/generators';
+import { PRODUCT_COLORS, CRUCIBLE_CONFIG } from '@/data/constants';
+import type { TappingArrangement, Crucible } from '@/types';
+import { cn } from '@/lib/utils';
 
-const gradeColors: Record<string, string> = {
-  'PFA-NT': 'bg-purple-100 text-purple-700',
-  'Wire Rod H-EC': 'bg-blue-100 text-blue-700',
-  'Billet': 'bg-green-100 text-green-700',
-  'P1020': 'bg-gray-100 text-gray-700',
-};
-
-export function TappingArrangement() {
-  const [selectedSection, setSelectedSection] = useState<string>('all');
-
-  // Group by section
-  const sections = [1, 2, 3, 4, 5];
-  const filteredAssignments =
-    selectedSection === 'all'
-      ? mockCrucibleAssignments
-      : mockCrucibleAssignments.filter((a) => a.section === Number(selectedSection));
-
-  // Stats
-  const totalCrucibles = mockCrucibleAssignments.length;
-  const constraintsMet = mockCrucibleAssignments.filter((a) => a.constraintsMet).length;
-  const totalWeight = mockCrucibleAssignments.reduce((sum, a) => sum + a.totalWeight, 0);
+function CrucibleRow({ crucible }: { crucible: Crucible }) {
+  const navigate = useNavigate();
+  const colorClass = PRODUCT_COLORS[crucible.targetGrade];
 
   return (
-    <div className="p-6 space-y-6">
+    <tr className="hover:bg-slate-50">
+      <td className="px-4 py-3 font-medium text-slate-900">{crucible.id}</td>
+      <td className="px-4 py-3">
+        <div className="flex flex-wrap gap-1">
+          {crucible.pots.slice(0, 4).map(potId => (
+            <span
+              key={potId}
+              className="text-xs px-2 py-0.5 bg-slate-100 rounded cursor-pointer hover:bg-slate-200"
+              onClick={() => navigate(`/pot-health/pot/${potId}`)}
+            >
+              {potId.split('-').slice(2).join('-')}
+            </span>
+          ))}
+          {crucible.pots.length > 4 && (
+            <span className="text-xs px-2 py-0.5 bg-slate-100 rounded text-slate-500">
+              +{crucible.pots.length - 4}
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="px-4 py-3 text-right font-medium">{crucible.totalWeight} MT</td>
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className={cn('w-2 h-4 rounded-full', colorClass)} />
+          <span className="text-sm">{crucible.targetGrade}</span>
+        </div>
+      </td>
+      <td className="px-4 py-3">
+        <span className={cn(
+          'text-sm font-medium',
+          crucible.blendedFe > 0.10 ? 'text-red-600' :
+          crucible.blendedFe > 0.075 ? 'text-yellow-600' : 'text-green-600'
+        )}>
+          {crucible.blendedFe.toFixed(4)}%
+        </span>
+      </td>
+      <td className="px-4 py-3">
+        <span className={cn(
+          'text-sm font-medium',
+          crucible.blendedSi > 0.07 ? 'text-red-600' :
+          crucible.blendedSi > 0.05 ? 'text-yellow-600' : 'text-green-600'
+        )}>
+          {crucible.blendedSi.toFixed(4)}%
+        </span>
+      </td>
+      <td className="px-4 py-3 text-slate-500">{crucible.route}</td>
+      <td className="px-4 py-3">
+        <Button variant="ghost" size="sm" className="h-7">
+          <Edit className="w-3 h-3" />
+        </Button>
+      </td>
+    </tr>
+  );
+}
+
+function ConstraintPanel({ constraints }: { constraints: TappingArrangement['constraints'] }) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm">Constraint Validation</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          {constraints.map((constraint, i) => (
+            <div key={i} className="flex items-center gap-2">
+              {constraint.passed ? (
+                <CheckCircle className="w-4 h-4 text-green-500" />
+              ) : (
+                <XCircle className="w-4 h-4 text-red-500" />
+              )}
+              <span className={cn(
+                'text-sm',
+                constraint.passed ? 'text-slate-600' : 'text-red-600'
+              )}>
+                {constraint.name}
+              </span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export function TappingArrangementPage() {
+  const navigate = useNavigate();
+  const [selectedSection, setSelectedSection] = useState<string>('all');
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const today = new Date();
+  const arrangement = useMemo(
+    () => generateTappingArrangement('PM', today),
+    []
+  );
+
+  const filteredCrucibles = useMemo(() => {
+    if (selectedSection === 'all') return arrangement.crucibles;
+    return arrangement.crucibles.filter(c => c.section === Number(selectedSection));
+  }, [arrangement.crucibles, selectedSection]);
+
+  const sectionSummary = useMemo(() => {
+    const summary: Record<number, { count: number; weight: number }> = {};
+    for (let i = 1; i <= CRUCIBLE_CONFIG.sections; i++) {
+      const sectionCrucibles = arrangement.crucibles.filter(c => c.section === i);
+      summary[i] = {
+        count: sectionCrucibles.length,
+        weight: sectionCrucibles.reduce((sum, c) => sum + c.totalWeight, 0),
+      };
+    }
+    return summary;
+  }, [arrangement.crucibles]);
+
+  const totalWeight = arrangement.crucibles.reduce((sum, c) => sum + c.totalWeight, 0);
+
+  const handleGenerate = () => {
+    setIsGenerating(true);
+    // Simulate generation
+    setTimeout(() => setIsGenerating(false), 2000);
+  };
+
+  return (
+    <div className="space-y-6">
       <PageHeader
         title="Tapping Arrangement"
-        description="AI-optimized pot assignments for crucible filling"
+        description={`${arrangement.shift} Shift - ${today.toLocaleDateString('en-MY', { weekday: 'long', month: 'long', day: 'numeric' })}`}
+        breadcrumbs={[
+          { label: 'Dashboard', href: '/' },
+          { label: 'Production', href: '/production' },
+          { label: 'Tapping Arrangement' },
+        ]}
         actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm">
-              <Download className="h-4 w-4 mr-2" />
+              <Download className="w-4 h-4 mr-2" />
               Export
             </Button>
-            <Button variant="outline" size="sm">
-              <Printer className="h-4 w-4 mr-2" />
-              Print
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleGenerate}
+              disabled={isGenerating}
+            >
+              <RefreshCw className={cn('w-4 h-4 mr-2', isGenerating && 'animate-spin')} />
+              Regenerate
             </Button>
-            <Button asChild>
-              <Link to="/production/select-pots">
-                <Plus className="h-4 w-4 mr-2" />
-                Manual Override
-              </Link>
+            <Button>
+              <Sparkles className="w-4 h-4 mr-2" />
+              Approve Arrangement
             </Button>
           </div>
         }
       />
 
-      {/* Optimization Status */}
-      <Card className="bg-green-50 border-green-200">
+      {/* Status Banner */}
+      <Card className={cn(
+        'border-l-4',
+        arrangement.status === 'approved' ? 'border-l-green-500 bg-green-50' :
+        arrangement.status === 'draft' ? 'border-l-yellow-500 bg-yellow-50' :
+        'border-l-blue-500 bg-blue-50'
+      )}>
         <CardContent className="py-4">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-green-100">
-              <Sparkles className="h-6 w-6 text-green-600" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <StatusBadge status={arrangement.status} />
+                <span className="text-sm text-slate-600">
+                  Optimization Score: <span className="font-semibold">{arrangement.optimizationScore}%</span>
+                </span>
+              </div>
+              <div className="h-4 w-px bg-slate-300" />
+              <div className="flex items-center gap-2 text-sm text-slate-600">
+                <Truck className="w-4 h-4" />
+                <span>{arrangement.crucibles.length} crucibles</span>
+                <span>·</span>
+                <span>{totalWeight.toFixed(1)} MT total</span>
+              </div>
             </div>
-            <div>
-              <h3 className="font-semibold text-green-800">AI Optimization Complete</h3>
-              <p className="text-sm text-green-700">
-                {constraintsMet}/{totalCrucibles} crucibles meet all constraints •{' '}
-                {totalWeight.toFixed(1)} MT total
-              </p>
-            </div>
-            <div className="flex-1" />
-            <Button variant="outline" className="border-green-300 text-green-700 hover:bg-green-100">
-              <Sparkles className="h-4 w-4 mr-2" />
-              Re-optimize
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate('/production/select-pots')}
+            >
+              Manual Override <ChevronRight className="w-4 h-4 ml-1" />
             </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* Section Tabs */}
-      <Tabs value={selectedSection} onValueChange={setSelectedSection}>
-        <TabsList>
-          <TabsTrigger value="all">All Sections</TabsTrigger>
-          {sections.map((s) => (
-            <TabsTrigger key={s} value={String(s)}>
-              Section {s}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* Main Table */}
+        <div className="lg:col-span-3">
+          {/* Section Tabs */}
+          <Tabs value={selectedSection} onValueChange={setSelectedSection}>
+            <TabsList className="mb-4">
+              <TabsTrigger value="all">All Sections</TabsTrigger>
+              {[1, 2, 3, 4, 5].map(section => (
+                <TabsTrigger key={section} value={String(section)}>
+                  S{section} ({sectionSummary[section]?.count || 0})
+                </TabsTrigger>
+              ))}
+            </TabsList>
 
-        <div className="mt-4">
-          {/* Arrangement Table */}
+            <Card>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b bg-slate-50">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Crucible</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Pots</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase">Weight</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Grade</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Blended Fe</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Blended Si</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Route</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredCrucibles.map((crucible) => (
+                      <CrucibleRow key={crucible.id} crucible={crucible} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Summary Row */}
+              <div className="px-4 py-3 border-t bg-slate-50">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-slate-600">
+                    Showing {filteredCrucibles.length} crucibles
+                  </span>
+                  <span className="font-medium">
+                    Total: {filteredCrucibles.reduce((sum, c) => sum + c.totalWeight, 0).toFixed(1)} MT
+                  </span>
+                </div>
+              </div>
+            </Card>
+          </Tabs>
+        </div>
+
+        {/* Side Panel */}
+        <div className="space-y-4">
+          {/* Constraints */}
+          <ConstraintPanel constraints={arrangement.constraints} />
+
+          {/* Section Summary */}
           <Card>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Crucible</TableHead>
-                  <TableHead>Grade</TableHead>
-                  <TableHead>Pots</TableHead>
-                  <TableHead>Total Weight</TableHead>
-                  <TableHead>Blended Fe</TableHead>
-                  <TableHead>Blended Si</TableHead>
-                  <TableHead>Route</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-20">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredAssignments.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 text-gray-500">
-                      No assignments for this section
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredAssignments.map((assignment) => (
-                    <TableRow key={assignment.id} className="group">
-                      <TableCell className="font-medium">{assignment.id}</TableCell>
-                      <TableCell>
-                        <Badge className={cn(gradeColors[assignment.productGrade])}>
-                          {assignment.productGrade}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {assignment.pots.slice(0, 3).map((potId) => (
-                            <Badge key={potId} variant="outline" className="text-xs">
-                              {potId}
-                            </Badge>
-                          ))}
-                          {assignment.pots.length > 3 && (
-                            <Badge variant="outline" className="text-xs">
-                              +{assignment.pots.length - 3}
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>{assignment.totalWeight.toFixed(2)} MT</TableCell>
-                      <TableCell
-                        className={cn(
-                          assignment.blendedFe > 0.075 ? 'text-red-600 font-medium' : ''
-                        )}
-                      >
-                        {assignment.blendedFe.toFixed(4)}
-                      </TableCell>
-                      <TableCell
-                        className={cn(
-                          assignment.blendedSi > 0.05 ? 'text-red-600 font-medium' : ''
-                        )}
-                      >
-                        {assignment.blendedSi.toFixed(4)}
-                      </TableCell>
-                      <TableCell className="text-sm text-gray-500">
-                        {assignment.route}
-                      </TableCell>
-                      <TableCell>
-                        {assignment.constraintsMet ? (
-                          <div className="flex items-center gap-1 text-green-600">
-                            <CheckCircle2 className="h-4 w-4" />
-                            <span className="text-sm">Pass</span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1 text-red-600">
-                            <XCircle className="h-4 w-4" />
-                            <span className="text-sm">Fail</span>
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="opacity-0 group-hover:opacity-100"
-                          asChild
-                        >
-                          <Link to="/production/select-pots">
-                            <Edit className="h-4 w-4" />
-                          </Link>
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Section Summary</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {[1, 2, 3, 4, 5].map(section => (
+                  <div
+                    key={section}
+                    className="flex items-center justify-between py-1 text-sm"
+                  >
+                    <span className="text-slate-600">Section {section}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-500">
+                        {sectionSummary[section]?.count || 0} crucibles
+                      </span>
+                      <span className="font-medium">
+                        {sectionSummary[section]?.weight.toFixed(1) || 0} MT
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Grade Distribution */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Grade Distribution</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {(['PFA-NT', 'Wire Rod H-EC', 'Billet', 'P1020'] as const).map(grade => {
+                  const weight = filteredCrucibles
+                    .filter(c => c.targetGrade === grade)
+                    .reduce((sum, c) => sum + c.totalWeight, 0);
+
+                  return (
+                    <div key={grade} className="flex items-center justify-between py-1">
+                      <div className="flex items-center gap-2">
+                        <div className={cn('w-2 h-4 rounded-full', PRODUCT_COLORS[grade])} />
+                        <span className="text-sm text-slate-600">{grade}</span>
+                      </div>
+                      <span className="text-sm font-medium">{weight.toFixed(1)} MT</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
           </Card>
         </div>
-      </Tabs>
-
-      {/* Constraint Validation Panel */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Constraint Validation</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[
-              { label: 'Weight Limits', description: '2-6 pots, max 10.5 MT', pass: true },
-              { label: 'Fe Constraints', description: 'Within grade limits', pass: constraintsMet === totalCrucibles },
-              { label: 'Si Constraints', description: 'Within grade limits', pass: constraintsMet === totalCrucibles },
-              { label: 'Special Products', description: 'Max 4 per section', pass: true },
-            ].map((constraint) => (
-              <div
-                key={constraint.label}
-                className={cn(
-                  'p-3 rounded-lg border',
-                  constraint.pass
-                    ? 'bg-green-50 border-green-200'
-                    : 'bg-red-50 border-red-200'
-                )}
-              >
-                <div className="flex items-center gap-2">
-                  {constraint.pass ? (
-                    <CheckCircle2 className="h-5 w-5 text-green-600" />
-                  ) : (
-                    <XCircle className="h-5 w-5 text-red-600" />
-                  )}
-                  <span className="font-medium text-sm">{constraint.label}</span>
-                </div>
-                <p className="mt-1 text-xs text-gray-500">{constraint.description}</p>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      </div>
     </div>
   );
 }

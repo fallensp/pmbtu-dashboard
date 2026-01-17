@@ -1,88 +1,110 @@
 @import "tailwindcss";
 
-/* Tailwind v4 theme extension */
 @theme {
-  --color-background: #ffffff;
-  --color-foreground: #0f172a;
-  --color-card: #ffffff;
-  --color-card-foreground: #0f172a;
-  --color-popover: #ffffff;
-  --color-popover-foreground: #0f172a;
-  --color-primary: #1e293b;
-  --color-primary-foreground: #f8fafc;
-  --color-secondary: #f1f5f9;
-  --color-secondary-foreground: #1e293b;
-  --color-muted: #f1f5f9;
-  --color-muted-foreground: #64748b;
-  --color-accent: #f1f5f9;
-  --color-accent-foreground: #1e293b;
-  --color-destructive: #ef4444;
-  --color-destructive-foreground: #f8fafc;
+  /* Colors - Industrial/Professional palette */
+  --color-primary: #1e40af;
+  --color-primary-dark: #1e3a8a;
+  --color-primary-light: #3b82f6;
+
+  --color-secondary: #475569;
+  --color-secondary-dark: #334155;
+  --color-secondary-light: #64748b;
+
+  /* Risk Level Colors */
+  --color-critical: #ef4444;
+  --color-critical-light: #fef2f2;
+  --color-critical-dark: #dc2626;
+
+  --color-high: #f97316;
+  --color-high-light: #fff7ed;
+  --color-high-dark: #ea580c;
+
+  --color-moderate: #eab308;
+  --color-moderate-light: #fefce8;
+  --color-moderate-dark: #ca8a04;
+
+  --color-normal: #22c55e;
+  --color-normal-light: #f0fdf4;
+  --color-normal-dark: #16a34a;
+
+  --color-shutdown: #9ca3af;
+  --color-shutdown-light: #f9fafb;
+  --color-shutdown-dark: #6b7280;
+
+  /* Background colors */
+  --color-background: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-elevated: #ffffff;
+
+  /* Border colors */
   --color-border: #e2e8f0;
-  --color-input: #e2e8f0;
-  --color-ring: #0f172a;
-  --radius: 0.5rem;
+  --color-border-hover: #cbd5e1;
+
+  /* Text colors */
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-muted: #94a3b8;
+
+  /* Sidebar */
+  --color-sidebar-bg: #0f172a;
+  --color-sidebar-text: #e2e8f0;
+  --color-sidebar-hover: #1e293b;
+  --color-sidebar-active: #1e40af;
+
+  /* Radius */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
 }
 
-@layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
-  }
+* {
+  border-color: var(--color-border);
 }
 
-@layer base {
-  * {
-    border-color: #e2e8f0;
-  }
-  body {
-    background-color: #f8fafc;
-    color: #0f172a;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  }
+body {
+  margin: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--color-background);
+  color: var(--color-text-primary);
 }
 
-/* Risk Level Colors */
-.risk-critical { background-color: #ef4444; }
-.risk-high { background-color: #f97316; }
-.risk-moderate { background-color: #eab308; }
-.risk-normal { background-color: #22c55e; }
-.risk-shutdown { background-color: #9ca3af; }
-
-/* Scrollbar styling */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
 
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 3px;
+::-webkit-scrollbar-track {
+  background: var(--color-background);
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 3px;
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #a1a1a1;
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-hover);
+}
+
+/* Utility classes for risk colors */
+.risk-critical {
+  background-color: var(--color-critical);
+}
+
+.risk-high {
+  background-color: var(--color-high);
+}
+
+.risk-moderate {
+  background-color: var(--color-moderate);
+}
+
+.risk-normal {
+  background-color: var(--color-normal);
+}
+
+.risk-shutdown {
+  background-color: var(--color-shutdown);
 }

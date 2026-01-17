@@ -29,7 +29,6 @@ export function TaskCard({ task, onEditPots }: TaskCardProps) {
   const constraints = PRODUCT_CONSTRAINTS[task.productGrade];
 
   const potCount = task.pots.length;
-  const isComplete = potCount === TASK_CONSTRAINTS.potsPerTask;
 
   const statusIcon = task.passesConstraints ? (
     <CheckCircle className="w-5 h-5 text-green-500" />

@@ -1,377 +1,417 @@
 import { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Sparkles, Filter, Plus, X, CheckCircle } from 'lucide-react';
 import { PageHeader } from '@/components/layout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { mockPotsV2, getEligiblePotsForGrade } from '@/data/mock';
-import { GRADE_CONSTRAINTS } from '@/data/constants';
+import { StatusBadge } from '@/components/shared/StatusBadge';
+import { getPots } from '@/data/generators';
+import { PRODUCT_CONSTRAINTS } from '@/data/constants';
 import type { ProductGrade } from '@/types';
 import { cn } from '@/lib/utils';
-import {
-  Sparkles,
-  Filter,
-  ArrowLeft,
-  Check,
-  X,
-} from 'lucide-react';
 
 export function PotSelector() {
-  const [selectedGrade, setSelectedGrade] = useState<ProductGrade>('PFA-NT');
+  const navigate = useNavigate();
+  const [selectedPots, setSelectedPots] = useState<Set<string>>(new Set());
+  const [targetGrade, setTargetGrade] = useState<ProductGrade>('PFA-NT');
   const [feRange, setFeRange] = useState({ min: 0, max: 0.075 });
   const [siRange, setSiRange] = useState({ min: 0, max: 0.05 });
-  const [selectedPots, setSelectedPots] = useState<Set<string>>(new Set());
+  const [showOnlyEligible, setShowOnlyEligible] = useState(true);
 
-  const constraints = GRADE_CONSTRAINTS[selectedGrade];
+  const allPots = useMemo(() => getPots(), []);
 
-  // Get eligible pots based on filters
+  const constraints = PRODUCT_CONSTRAINTS[targetGrade];
+
+  // Filter pots based on criteria
   const eligiblePots = useMemo(() => {
-    return mockPotsV2.filter((pot) =>
-      pot.status === 'active' &&
-      pot.metrics.fe >= feRange.min &&
-      pot.metrics.fe <= feRange.max &&
-      pot.metrics.si >= siRange.min &&
-      pot.metrics.si <= siRange.max
-    ).sort((a, b) => b.aiScore - a.aiScore);
-  }, [feRange, siRange]);
+    return allPots.filter(pot => {
+      if (pot.riskLevel === 'shutdown' || pot.riskLevel === 'critical') return false;
+      if (showOnlyEligible) {
+        return pot.metrics.fe <= constraints.maxFe && pot.metrics.si <= constraints.maxSi;
+      }
+      return pot.metrics.fe >= feRange.min && pot.metrics.fe <= feRange.max &&
+             pot.metrics.si >= siRange.min && pot.metrics.si <= siRange.max;
+    }).sort((a, b) => a.metrics.fe - b.metrics.fe);
+  }, [allPots, targetGrade, feRange, siRange, showOnlyEligible, constraints]);
 
-  // AI recommended pots
-  const aiRecommended = useMemo(() => {
-    return getEligiblePotsForGrade(selectedGrade).slice(0, 5);
-  }, [selectedGrade]);
+  // Calculate blended chemistry
+  const blendedChemistry = useMemo(() => {
+    if (selectedPots.size === 0) return { fe: 0, si: 0 };
 
-  // Calculate blended values for selected pots
-  const blendedValues = useMemo(() => {
-    const selected = mockPotsV2.filter((p) => selectedPots.has(p.id));
-    if (selected.length === 0) return null;
-
-    const totalWeight = selected.reduce((sum, p) => sum + p.weight, 0);
-    const blendedFe = selected.reduce((sum, p) => sum + p.metrics.fe * p.weight, 0) / totalWeight;
-    const blendedSi = selected.reduce((sum, p) => sum + p.metrics.si * p.weight, 0) / totalWeight;
-
+    const selected = allPots.filter(p => selectedPots.has(p.id));
     return {
-      totalWeight: totalWeight.toFixed(2),
-      blendedFe: blendedFe.toFixed(4),
-      blendedSi: blendedSi.toFixed(4),
-      fePasses: blendedFe <= constraints.maxFe,
-      siPasses: blendedSi <= constraints.maxSi,
+      fe: selected.reduce((sum, p) => sum + p.metrics.fe, 0) / selected.length,
+      si: selected.reduce((sum, p) => sum + p.metrics.si, 0) / selected.length,
     };
-  }, [selectedPots, constraints]);
+  }, [allPots, selectedPots]);
 
-  const togglePotSelection = (potId: string) => {
+  // Check if blend meets constraints
+  const meetsConstraints = blendedChemistry.fe <= constraints.maxFe &&
+                          blendedChemistry.si <= constraints.maxSi;
+
+  const togglePot = (potId: string) => {
     const newSelected = new Set(selectedPots);
     if (newSelected.has(potId)) {
       newSelected.delete(potId);
     } else {
-      if (newSelected.size < 6) {
-        newSelected.add(potId);
-      }
+      newSelected.add(potId);
     }
     setSelectedPots(newSelected);
   };
 
-  const handleGradeChange = (grade: ProductGrade) => {
-    setSelectedGrade(grade);
-    const newConstraints = GRADE_CONSTRAINTS[grade];
-    setFeRange({ min: 0, max: newConstraints.maxFe });
-    setSiRange({ min: 0, max: newConstraints.maxSi });
+  const selectAll = () => {
+    if (selectedPots.size === eligiblePots.length) {
+      setSelectedPots(new Set());
+    } else {
+      setSelectedPots(new Set(eligiblePots.map(p => p.id)));
+    }
   };
 
+  const handleGradeChange = (grade: ProductGrade) => {
+    setTargetGrade(grade);
+    const newConstraints = PRODUCT_CONSTRAINTS[grade];
+    setFeRange({ min: 0, max: newConstraints.maxFe });
+    setSiRange({ min: 0, max: newConstraints.maxSi });
+    setSelectedPots(new Set());
+  };
+
+  // Get AI recommended pots
+  const recommendedPots = useMemo(() => {
+    return eligiblePots
+      .sort((a, b) => b.aiScore - a.aiScore)
+      .slice(0, 6);
+  }, [eligiblePots]);
+
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       <PageHeader
         title="Pot Selection"
         description="Select pots for crucible assignment"
+        breadcrumbs={[
+          { label: 'Dashboard', href: '/' },
+          { label: 'Production', href: '/production' },
+          { label: 'Pot Selection' },
+        ]}
         actions={
-          <Button variant="outline" asChild>
-            <Link to="/production/arrangement">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Arrangement
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => navigate(-1)}>
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back
+            </Button>
+            <Button disabled={selectedPots.size === 0 || !meetsConstraints}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add to Crucible ({selectedPots.size})
+            </Button>
+          </div>
         }
       />
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Filters Panel */}
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Filter className="h-4 w-4" />
-                Filters
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Grade Selector */}
-              <div className="space-y-2">
-                <Label>Target Grade</Label>
-                <Select value={selectedGrade} onValueChange={(v) => handleGradeChange(v as ProductGrade)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PFA-NT">PFA-NT</SelectItem>
-                    <SelectItem value="Wire Rod H-EC">Wire Rod H-EC</SelectItem>
-                    <SelectItem value="Billet">Billet</SelectItem>
-                    <SelectItem value="P1020">P1020</SelectItem>
-                  </SelectContent>
-                </Select>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Filter className="w-4 h-4" />
+              Filters
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Target Grade */}
+            <div>
+              <label className="text-xs text-slate-500 block mb-2">Target Grade</label>
+              <div className="space-y-1">
+                {(['PFA-NT', 'Wire Rod H-EC', 'Billet', 'P1020'] as ProductGrade[]).map(grade => (
+                  <button
+                    key={grade}
+                    onClick={() => handleGradeChange(grade)}
+                    className={cn(
+                      'w-full px-3 py-2 text-left text-sm rounded transition-colors',
+                      targetGrade === grade
+                        ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                        : 'hover:bg-slate-100'
+                    )}
+                  >
+                    <div className="flex justify-between">
+                      <span>{grade}</span>
+                      <span className="text-xs text-slate-400">
+                        Fe≤{PRODUCT_CONSTRAINTS[grade].maxFe}
+                      </span>
+                    </div>
+                  </button>
+                ))}
               </div>
+            </div>
 
-              {/* Fe Range */}
-              <div className="space-y-2">
-                <Label>Fe Range (%)</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    step="0.001"
-                    value={feRange.min}
-                    onChange={(e) => setFeRange({ ...feRange, min: Number(e.target.value) })}
-                    className="w-24"
-                  />
-                  <span className="text-gray-500">to</span>
-                  <Input
-                    type="number"
-                    step="0.001"
-                    value={feRange.max}
-                    onChange={(e) => setFeRange({ ...feRange, max: Number(e.target.value) })}
-                    className="w-24"
-                  />
-                </div>
-                <p className="text-xs text-gray-500">Max for grade: {constraints.maxFe}</p>
+            {/* Fe Range */}
+            <div>
+              <label className="text-xs text-slate-500 block mb-2">
+                Fe Range (Max: {constraints.maxFe}%)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max={constraints.maxFe}
+                  value={feRange.min}
+                  onChange={(e) => setFeRange(prev => ({ ...prev, min: Number(e.target.value) }))}
+                  className="w-full px-2 py-1 text-sm border rounded"
+                />
+                <span className="text-slate-400">-</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max={constraints.maxFe}
+                  value={feRange.max}
+                  onChange={(e) => setFeRange(prev => ({ ...prev, max: Number(e.target.value) }))}
+                  className="w-full px-2 py-1 text-sm border rounded"
+                />
               </div>
+            </div>
 
-              {/* Si Range */}
-              <div className="space-y-2">
-                <Label>Si Range (%)</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    step="0.001"
-                    value={siRange.min}
-                    onChange={(e) => setSiRange({ ...siRange, min: Number(e.target.value) })}
-                    className="w-24"
-                  />
-                  <span className="text-gray-500">to</span>
-                  <Input
-                    type="number"
-                    step="0.001"
-                    value={siRange.max}
-                    onChange={(e) => setSiRange({ ...siRange, max: Number(e.target.value) })}
-                    className="w-24"
-                  />
-                </div>
-                <p className="text-xs text-gray-500">Max for grade: {constraints.maxSi}</p>
+            {/* Si Range */}
+            <div>
+              <label className="text-xs text-slate-500 block mb-2">
+                Si Range (Max: {constraints.maxSi}%)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max={constraints.maxSi}
+                  value={siRange.min}
+                  onChange={(e) => setSiRange(prev => ({ ...prev, min: Number(e.target.value) }))}
+                  className="w-full px-2 py-1 text-sm border rounded"
+                />
+                <span className="text-slate-400">-</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max={constraints.maxSi}
+                  value={siRange.max}
+                  onChange={(e) => setSiRange(prev => ({ ...prev, max: Number(e.target.value) }))}
+                  className="w-full px-2 py-1 text-sm border rounded"
+                />
               </div>
+            </div>
 
-              <p className="text-sm text-gray-600">
-                {eligiblePots.length} pots match filters
-              </p>
-            </CardContent>
-          </Card>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={showOnlyEligible}
+                onCheckedChange={(checked) => setShowOnlyEligible(!!checked)}
+              />
+              <span className="text-sm text-slate-600">Show only eligible pots</span>
+            </div>
+          </CardContent>
+        </Card>
 
+        {/* Main Content */}
+        <div className="lg:col-span-2">
           {/* AI Recommendations */}
-          <Card className="bg-blue-50 border-blue-200">
+          <Card className="mb-4 border-blue-200 bg-blue-50">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-blue-600" />
-                AI Recommendations
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-blue-600" />
+                AI Recommended Pots
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-blue-700 mb-3">
-                Top pots for {selectedGrade} based on AI scoring:
-              </p>
-              <div className="space-y-2">
-                {aiRecommended.map((pot) => (
-                  <div
+              <div className="flex flex-wrap gap-2">
+                {recommendedPots.map(pot => (
+                  <button
                     key={pot.id}
+                    onClick={() => togglePot(pot.id)}
                     className={cn(
-                      'flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors',
+                      'px-3 py-1.5 text-xs rounded border transition-colors',
                       selectedPots.has(pot.id)
-                        ? 'bg-blue-200'
-                        : 'bg-white hover:bg-blue-100'
+                        ? 'bg-blue-500 text-white border-blue-500'
+                        : 'bg-white border-blue-200 hover:bg-blue-100'
                     )}
-                    onClick={() => togglePotSelection(pot.id)}
                   >
-                    <div>
-                      <span className="font-medium">{pot.id}</span>
-                      <span className="text-xs text-gray-500 ml-2">
-                        Fe: {pot.metrics.fe.toFixed(3)} | Si: {pot.metrics.si.toFixed(3)}
-                      </span>
+                    <div className="flex items-center gap-1">
+                      {selectedPots.has(pot.id) && <CheckCircle className="w-3 h-3" />}
+                      <span>{pot.id.split('-').slice(2).join('-')}</span>
+                      <span className="text-blue-300">|</span>
+                      <span>Fe: {pot.metrics.fe.toFixed(3)}</span>
                     </div>
-                    <Badge variant="secondary">{pot.aiScore}</Badge>
-                  </div>
+                  </button>
                 ))}
               </div>
             </CardContent>
           </Card>
-        </div>
 
-        {/* Pot Table */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Eligible Pots</CardTitle>
-              <span className="text-sm text-gray-500">
-                {selectedPots.size}/6 selected
+          {/* Pot Table */}
+          <Card>
+            <div className="p-4 border-b flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Checkbox
+                  checked={selectedPots.size === eligiblePots.length && eligiblePots.length > 0}
+                  onCheckedChange={selectAll}
+                />
+                <span className="text-sm text-slate-600">
+                  {eligiblePots.length} eligible pots
+                </span>
+              </div>
+              <span className="text-sm text-slate-500">
+                {selectedPots.size} selected
               </span>
             </div>
-          </CardHeader>
-          <ScrollArea className="h-[400px]">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12"></TableHead>
-                  <TableHead>Pot ID</TableHead>
-                  <TableHead>AI Score</TableHead>
-                  <TableHead>Fe (%)</TableHead>
-                  <TableHead>Si (%)</TableHead>
-                  <TableHead>Weight (MT)</TableHead>
-                  <TableHead>Phase</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {eligiblePots.slice(0, 50).map((pot) => {
-                  const isRecommended = aiRecommended.some((r) => r.id === pot.id);
-                  return (
-                    <TableRow
+
+            <div className="max-h-[400px] overflow-y-auto">
+              <table className="w-full">
+                <thead className="sticky top-0 bg-white border-b">
+                  <tr>
+                    <th className="px-4 py-2 text-left"></th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">Pot ID</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">Fe (%)</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">Si (%)</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">AI Score</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-slate-500">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {eligiblePots.map(pot => (
+                    <tr
                       key={pot.id}
                       className={cn(
-                        'cursor-pointer',
-                        selectedPots.has(pot.id) && 'bg-blue-50',
-                        isRecommended && !selectedPots.has(pot.id) && 'bg-yellow-50'
+                        'hover:bg-slate-50 cursor-pointer',
+                        selectedPots.has(pot.id) && 'bg-blue-50'
                       )}
-                      onClick={() => togglePotSelection(pot.id)}
+                      onClick={() => togglePot(pot.id)}
                     >
-                      <TableCell>
+                      <td className="px-4 py-2">
                         <Checkbox
                           checked={selectedPots.has(pot.id)}
-                          onCheckedChange={() => togglePotSelection(pot.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          onCheckedChange={() => togglePot(pot.id)}
                         />
-                      </TableCell>
-                      <TableCell className="font-medium">
-                        {pot.id}
-                        {isRecommended && (
-                          <Badge className="ml-2 bg-yellow-500 text-xs">AI</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">{pot.aiScore}</Badge>
-                      </TableCell>
-                      <TableCell
-                        className={cn(
-                          pot.metrics.fe > constraints.maxFe && 'text-red-600'
-                        )}
-                      >
+                      </td>
+                      <td className="px-4 py-2 font-medium text-sm">{pot.id}</td>
+                      <td className={cn(
+                        'px-4 py-2 text-sm',
+                        pot.metrics.fe > constraints.maxFe ? 'text-red-600' : 'text-green-600'
+                      )}>
                         {pot.metrics.fe.toFixed(4)}
-                      </TableCell>
-                      <TableCell
-                        className={cn(
-                          pot.metrics.si > constraints.maxSi && 'text-red-600'
-                        )}
-                      >
+                      </td>
+                      <td className={cn(
+                        'px-4 py-2 text-sm',
+                        pot.metrics.si > constraints.maxSi ? 'text-red-600' : 'text-green-600'
+                      )}>
                         {pot.metrics.si.toFixed(4)}
-                      </TableCell>
-                      <TableCell>{pot.weight}</TableCell>
-                      <TableCell>Phase {pot.phase}</TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </ScrollArea>
-        </Card>
-      </div>
+                      </td>
+                      <td className="px-4 py-2 text-sm">{pot.aiScore.toFixed(1)}</td>
+                      <td className="px-4 py-2">
+                        <StatusBadge status={pot.riskLevel} size="sm" />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
 
-      {/* Selection Summary */}
-      {selectedPots.size > 0 && (
-        <Card className="sticky bottom-4 shadow-lg">
-          <CardContent className="py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-6">
-                <div>
-                  <span className="text-sm text-gray-500">Selected Pots:</span>
-                  <span className="ml-2 font-medium">{selectedPots.size}/6</span>
+        {/* Selection Summary */}
+        <Card className="h-fit">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Selection Summary</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Selected Pots */}
+            <div>
+              <label className="text-xs text-slate-500 block mb-2">
+                Selected Pots ({selectedPots.size})
+              </label>
+              {selectedPots.size === 0 ? (
+                <p className="text-sm text-slate-400">No pots selected</p>
+              ) : (
+                <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
+                  {Array.from(selectedPots).map(potId => (
+                    <span
+                      key={potId}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded"
+                    >
+                      {potId.split('-').slice(2).join('-')}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          togglePot(potId);
+                        }}
+                        className="hover:text-blue-900"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
                 </div>
-                {blendedValues && (
-                  <>
-                    <div>
-                      <span className="text-sm text-gray-500">Total Weight:</span>
-                      <span className="ml-2 font-medium">{blendedValues.totalWeight} MT</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-sm text-gray-500">Blended Fe:</span>
-                      <span
-                        className={cn(
-                          'font-medium',
-                          blendedValues.fePasses ? 'text-green-600' : 'text-red-600'
-                        )}
-                      >
-                        {blendedValues.blendedFe}
-                      </span>
-                      {blendedValues.fePasses ? (
-                        <Check className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <X className="h-4 w-4 text-red-600" />
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-sm text-gray-500">Blended Si:</span>
-                      <span
-                        className={cn(
-                          'font-medium',
-                          blendedValues.siPasses ? 'text-green-600' : 'text-red-600'
-                        )}
-                      >
-                        {blendedValues.blendedSi}
-                      </span>
-                      {blendedValues.siPasses ? (
-                        <Check className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <X className="h-4 w-4 text-red-600" />
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={() => setSelectedPots(new Set())}>
-                  Clear Selection
-                </Button>
-                <Button
-                  disabled={
-                    selectedPots.size < 2 ||
-                    (blendedValues ? (!blendedValues.fePasses || !blendedValues.siPasses) : false)
-                  }
-                >
-                  Confirm Selection
-                </Button>
+              )}
+            </div>
+
+            {/* Blended Chemistry */}
+            <div className="pt-4 border-t">
+              <label className="text-xs text-slate-500 block mb-2">
+                Blended Chemistry
+              </label>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-sm text-slate-600">Fe</span>
+                  <span className={cn(
+                    'text-sm font-medium',
+                    blendedChemistry.fe > constraints.maxFe ? 'text-red-600' : 'text-green-600'
+                  )}>
+                    {blendedChemistry.fe.toFixed(4)}%
+                    <span className="text-slate-400 font-normal ml-1">
+                      / {constraints.maxFe}%
+                    </span>
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-slate-600">Si</span>
+                  <span className={cn(
+                    'text-sm font-medium',
+                    blendedChemistry.si > constraints.maxSi ? 'text-red-600' : 'text-green-600'
+                  )}>
+                    {blendedChemistry.si.toFixed(4)}%
+                    <span className="text-slate-400 font-normal ml-1">
+                      / {constraints.maxSi}%
+                    </span>
+                  </span>
+                </div>
               </div>
             </div>
+
+            {/* Constraint Status */}
+            <div className={cn(
+              'p-3 rounded-lg',
+              meetsConstraints ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+            )}>
+              <div className="flex items-center gap-2 text-sm font-medium">
+                {meetsConstraints ? (
+                  <CheckCircle className="w-4 h-4" />
+                ) : (
+                  <X className="w-4 h-4" />
+                )}
+                {meetsConstraints
+                  ? `Meets ${targetGrade} requirements`
+                  : `Does not meet ${targetGrade} requirements`
+                }
+              </div>
+            </div>
+
+            <Button
+              className="w-full"
+              disabled={selectedPots.size === 0 || !meetsConstraints}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add to Crucible
+            </Button>
           </CardContent>
         </Card>
-      )}
+      </div>
     </div>
   );
 }

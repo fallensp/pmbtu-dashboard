@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Sparkles, Trash2, AlertTriangle } from 'lucide-react';
 import { usePlannerStore, getTotalTasksNeeded } from '@/stores/plannerStore';
 import { TASK_CONSTRAINTS, PRODUCT_COLORS, PRODUCT_GRADE_INFO } from '@/data/constants';
-import type { ProductGrade, ProductRequest } from '@/types';
+import type { ProductRequest } from '@/types';
 import { cn } from '@/lib/utils';
 
 function ProductCard({ request }: { request: ProductRequest }) {
@@ -26,7 +26,7 @@ function ProductCard({ request }: { request: ProductRequest }) {
             min={0}
             step={10}
             value={request.targetMT || ''}
-            onChange={(e) => setProductRequest(
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setProductRequest(
               request.productGrade,
               Math.max(0, parseInt(e.target.value) || 0)
             )}

@@ -1,97 +1,152 @@
 import { useMemo } from 'react';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { PotCell } from './PotCell';
 import type { Pot, RiskLevel } from '@/types';
-import { PHASE_AREAS } from '@/data/constants';
+import { AREAS_BY_PHASE } from '@/data/constants';
 import { cn } from '@/lib/utils';
 
 interface PotHeatmapProps {
   pots: Pot[];
-  selectedPhase: 1 | 2 | 3;
+  phase: number;
   selectedAreas: string[];
   selectedRiskLevels: RiskLevel[];
-  onPotClick?: (pot: Pot) => void;
-  selectedPotId?: string;
+  selectedPotId?: string | null;
+  onPotClick: (pot: Pot) => void;
 }
 
 export function PotHeatmap({
   pots,
-  selectedPhase,
+  phase,
   selectedAreas,
   selectedRiskLevels,
-  onPotClick,
   selectedPotId,
+  onPotClick,
 }: PotHeatmapProps) {
-  // Filter pots by phase
-  const phasePots = useMemo(() => {
-    return pots.filter((p) => p.phase === selectedPhase);
-  }, [pots, selectedPhase]);
+  const areas = AREAS_BY_PHASE[phase] || [];
 
-  // Group pots by area
   const potsByArea = useMemo(() => {
-    const areas = PHASE_AREAS[selectedPhase];
     const grouped: Record<string, Pot[]> = {};
-
-    areas.forEach((area) => {
-      grouped[area] = phasePots
-        .filter((p) => p.area === area)
+    areas.forEach(area => {
+      grouped[area] = pots
+        .filter(p => p.phase === phase && p.area === area)
         .sort((a, b) => a.position - b.position);
     });
-
     return grouped;
-  }, [phasePots, selectedPhase]);
+  }, [pots, phase, areas]);
 
-  // Check if a pot should be highlighted
-  const isPotVisible = (pot: Pot) => {
-    if (selectedAreas.length > 0 && !selectedAreas.includes(pot.area)) {
-      return false;
+  const filterPots = (areaPs: Pot[]) => {
+    let filtered = areaPs;
+    if (selectedRiskLevels.length > 0) {
+      filtered = filtered.filter(p => selectedRiskLevels.includes(p.riskLevel));
     }
-    if (!selectedRiskLevels.includes(pot.riskLevel)) {
-      return false;
-    }
-    return true;
+    return filtered;
+  };
+
+  const isAreaVisible = (area: string) => {
+    return selectedAreas.length === 0 || selectedAreas.includes(area);
   };
 
   return (
-    <div className="space-y-4">
-      {Object.entries(potsByArea).map(([area, areaPots]) => {
-        const isAreaSelected = selectedAreas.length === 0 || selectedAreas.includes(area);
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {areas.map(area => {
+        const areaPots = potsByArea[area] || [];
+        const filteredPots = filterPots(areaPots);
+        const visible = isAreaVisible(area);
+
+        if (!visible) return null;
+
+        // Calculate area stats
+        const criticalCount = areaPots.filter(p => p.riskLevel === 'critical').length;
+        const highCount = areaPots.filter(p => p.riskLevel === 'high').length;
+        const avgScore = Math.round(areaPots.reduce((sum, p) => sum + p.aiScore, 0) / areaPots.length);
 
         return (
-          <div
+          <Card
             key={area}
             className={cn(
-              'p-3 rounded-lg border transition-opacity',
-              isAreaSelected ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-100 opacity-50'
+              'transition-opacity',
+              selectedAreas.length > 0 && !selectedAreas.includes(area) && 'opacity-40'
             )}
           >
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-700">{area}</h3>
-              <span className="text-xs text-gray-500">
-                {areaPots.filter(isPotVisible).length} / {areaPots.length} pots
-              </span>
-            </div>
-
-            <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(25, minmax(0, 1fr))' }}>
-              {areaPots.map((pot) => (
-                <div
-                  key={pot.id}
-                  className={cn(
-                    'transition-opacity',
-                    !isPotVisible(pot) && 'opacity-20'
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Area {area}</CardTitle>
+                <div className="flex items-center gap-2 text-xs">
+                  {criticalCount > 0 && (
+                    <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full font-medium">
+                      {criticalCount} critical
+                    </span>
                   )}
-                >
-                  <PotCell
-                    pot={pot}
-                    onClick={isPotVisible(pot) ? onPotClick : undefined}
-                    isSelected={pot.id === selectedPotId}
-                    size="sm"
-                  />
+                  {highCount > 0 && (
+                    <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full font-medium">
+                      {highCount} high
+                    </span>
+                  )}
+                  <span className="text-slate-500">
+                    Score: <span className={cn(
+                      'font-medium',
+                      avgScore >= 80 ? 'text-green-600' :
+                      avgScore >= 60 ? 'text-yellow-600' :
+                      avgScore >= 40 ? 'text-orange-600' : 'text-red-600'
+                    )}>{avgScore}</span>
+                  </span>
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-1">
+                {areaPots.map(pot => {
+                  const isFiltered = selectedRiskLevels.length > 0 && !selectedRiskLevels.includes(pot.riskLevel);
+                  return (
+                    <div
+                      key={pot.id}
+                      className={cn(
+                        'transition-opacity',
+                        isFiltered && 'opacity-20'
+                      )}
+                    >
+                      <PotCell
+                        pot={pot}
+                        isSelected={pot.id === selectedPotId}
+                        onClick={onPotClick}
+                        size="sm"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+                <span>{areaPots.length} pots</span>
+                {selectedRiskLevels.length > 0 && (
+                  <span>{filteredPots.length} shown</span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         );
       })}
+    </div>
+  );
+}
+
+// Legend component
+export function HeatmapLegend() {
+  const items = [
+    { label: 'Critical', color: 'bg-red-500' },
+    { label: 'High', color: 'bg-orange-500' },
+    { label: 'Moderate', color: 'bg-yellow-500' },
+    { label: 'Normal', color: 'bg-green-500' },
+    { label: 'Shutdown', color: 'bg-gray-400' },
+  ];
+
+  return (
+    <div className="flex items-center gap-4">
+      {items.map(item => (
+        <div key={item.label} className="flex items-center gap-1.5">
+          <div className={cn('w-3 h-3 rounded-sm', item.color)} />
+          <span className="text-xs text-slate-600">{item.label}</span>
+        </div>
+      ))}
     </div>
   );
 }

@@ -83,7 +83,7 @@ function getTaskStatus(task: TaskV2): TaskStatus {
   return 'ready';
 }
 
-function calculateShiftSummary(tasks: TaskV2[], requests: ProductRequest[]): ShiftSummary {
+function calculateShiftSummary(tasks: TaskV2[], _requests: ProductRequest[]): ShiftSummary {
   const tasksByGrade: Record<ProductGrade, number> = {
     'PFA-NT': 0,
     'Wire Rod H-EC': 0,

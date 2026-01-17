@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Search, Sparkles, X } from 'lucide-react';
 import { usePlannerStore, getEligiblePotsForGrade } from '@/stores/plannerStore';
 import { TASK_CONSTRAINTS, PRODUCT_COLORS, PRODUCT_CONSTRAINTS } from '@/data/constants';
-import type { ProductGrade, Pot } from '@/types';
+import type { ProductGrade } from '@/types';
 import { cn } from '@/lib/utils';
 
 interface PotSelectorModalProps {
@@ -148,7 +148,7 @@ export function PotSelectorModal({
                 <Input
                   placeholder="Search pot ID..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
                   className="pl-9"
                 />
               </div>
@@ -165,7 +165,7 @@ export function PotSelectorModal({
                       min={0}
                       max={constraints.maxFe}
                       value={feRange[1]}
-                      onChange={(e) => setFeRange([0, Number(e.target.value)])}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFeRange([0, Number(e.target.value)])}
                       className="h-8 text-sm"
                     />
                   </div>
@@ -181,7 +181,7 @@ export function PotSelectorModal({
                       min={0}
                       max={constraints.maxSi}
                       value={siRange[1]}
-                      onChange={(e) => setSiRange([0, Number(e.target.value)])}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSiRange([0, Number(e.target.value)])}
                       className="h-8 text-sm"
                     />
                   </div>
