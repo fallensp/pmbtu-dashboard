@@ -6,9 +6,9 @@ import {
   PotlineOverview,
   AlertManagement,
   OrderQueue,
-  TappingArrangement,
+  TappingArrangementPage,
   PotSelector,
-  ScheduleCalendar,
+  Schedule,
   DailyTappingPlanner,
 } from '@/pages';
 
@@ -19,18 +19,12 @@ function App() {
         <Routes>
           <Route path="/" element={<AppLayout />}>
             <Route index element={<Dashboard />} />
-
-            {/* Pot Health Routes */}
             <Route path="pot-health" element={<PotlineOverview />} />
             <Route path="pot-health/alerts" element={<AlertManagement />} />
-
-            {/* Production v1 Routes */}
             <Route path="production" element={<OrderQueue />} />
-            <Route path="production/arrangement" element={<TappingArrangement />} />
+            <Route path="production/arrangement" element={<TappingArrangementPage />} />
             <Route path="production/select-pots" element={<PotSelector />} />
-            <Route path="production/schedule" element={<ScheduleCalendar />} />
-
-            {/* Production v2 Routes */}
+            <Route path="production/schedule" element={<Schedule />} />
             <Route path="production-v2" element={<DailyTappingPlanner />} />
           </Route>
         </Routes>

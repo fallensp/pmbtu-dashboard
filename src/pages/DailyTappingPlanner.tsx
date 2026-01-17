@@ -1,358 +1,272 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState } from 'react';
+import { Download, Save, Send, Plus, CheckCircle, AlertTriangle } from 'lucide-react';
 import { PageHeader } from '@/components/layout';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { OrderSummaryCards, CrucibleCard, PotSelectorModal } from '@/components/production-v2';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ProductRequestForm, TaskCard, PotSelectorModal } from '@/components/production-v2';
 import { usePlannerStore } from '@/stores/plannerStore';
-import { mockOrders, mockPotsV2, mockCruciblesV2 } from '@/data/mock';
-import { GRADE_CONSTRAINTS } from '@/data/constants';
-import type { ProductGrade, ShiftType, PotAssignment } from '@/types';
-import {
-  Plus,
-  Sparkles,
-  Trash2,
-  Download,
-  Printer,
-  Save,
-  Clock,
-  Edit,
-} from 'lucide-react';
+import { TASK_CONSTRAINTS, PRODUCT_COLORS } from '@/data/constants';
+import type { ProductGrade } from '@/types';
+import { cn } from '@/lib/utils';
 
-export function DailyTappingPlanner() {
-  const {
-    selectedDate,
-    selectedShift,
-    crucibles,
-    orders,
-    selectedCrucibleId,
-    isEditOrdersModalOpen,
-    isPotSelectorModalOpen,
-    setSelectedDate,
-    setSelectedShift,
-    setCrucibles,
-    setOrders,
-    addCrucible,
-    removeCrucible,
-    addPotToCrucible,
-    removePotFromCrucible,
-    openEditOrdersModal,
-    closeEditOrdersModal,
-    openPotSelectorModal,
-    closePotSelectorModal,
-    clearAllCrucibles,
-  } = usePlannerStore();
+function ShiftSummaryBar() {
+  const shiftSummary = usePlannerStore(state => state.shiftSummary);
+  const tasks = usePlannerStore(state => state.tasks);
 
-  const [addCrucibleGrade, setAddCrucibleGrade] = useState<ProductGrade>('PFA-NT');
-  const [editedOrders, setEditedOrders] = useState(orders);
+  const passingTasks = tasks.filter(t => t.passesConstraints).length;
+  const allPassing = passingTasks === tasks.length && tasks.length > 0;
 
-  // Initialize with mock data
-  useEffect(() => {
-    if (orders.length === 0) {
-      setOrders(mockOrders);
-    }
-    if (crucibles.length === 0) {
-      setCrucibles(mockCruciblesV2);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  return (
+    <div className={cn(
+      'flex items-center justify-between p-4 rounded-lg border',
+      allPassing ? 'bg-green-50 border-green-200' :
+      shiftSummary.isOverLimit ? 'bg-red-50 border-red-200' :
+      tasks.length > 0 ? 'bg-yellow-50 border-yellow-200' : 'bg-slate-50'
+    )}>
+      <div className="flex items-center gap-6">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-slate-600">Tasks:</span>
+          <span className={cn(
+            'font-semibold',
+            shiftSummary.isOverLimit ? 'text-red-600' : ''
+          )}>
+            {shiftSummary.totalTasks}/{shiftSummary.maxTasks}
+          </span>
+        </div>
 
-  // Get current selected crucible
-  const selectedCrucible = crucibles.find((c) => c.id === selectedCrucibleId);
+        <div className="h-4 w-px bg-slate-300" />
 
-  // Get pots already assigned to any crucible
-  const assignedPotIds = useMemo(() => {
-    return new Set(crucibles.flatMap((c) => c.pots.map((p) => p.potId)));
-  }, [crucibles]);
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-slate-600">Pots:</span>
+          <span className="font-semibold">
+            {shiftSummary.totalPots}/{shiftSummary.maxPots}
+          </span>
+        </div>
 
-  // Filter available pots (not already assigned)
-  const availablePots = useMemo(() => {
-    return mockPotsV2.filter(
-      (p) => p.status === 'active' && !assignedPotIds.has(p.id)
+        <div className="h-4 w-px bg-slate-300" />
+
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-slate-600">Weight:</span>
+          <span className="font-semibold">{shiftSummary.totalWeight} MT</span>
+        </div>
+
+        <div className="h-4 w-px bg-slate-300" />
+
+        {/* Grade breakdown */}
+        <div className="flex items-center gap-3">
+          {(Object.entries(shiftSummary.tasksByGrade) as [ProductGrade, number][])
+            .filter(([, count]) => count > 0)
+            .map(([grade, count]) => (
+              <div key={grade} className="flex items-center gap-1">
+                <div className={cn('w-2 h-2 rounded-full', PRODUCT_COLORS[grade])} />
+                <span className="text-xs text-slate-600">{count}</span>
+              </div>
+            ))}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {tasks.length > 0 && (
+          <div className={cn(
+            'flex items-center gap-1 text-sm',
+            allPassing ? 'text-green-600' : 'text-yellow-600'
+          )}>
+            {allPassing ? (
+              <>
+                <CheckCircle className="w-4 h-4" />
+                All tasks pass
+              </>
+            ) : (
+              <>
+                <AlertTriangle className="w-4 h-4" />
+                {passingTasks}/{tasks.length} passing
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TaskList() {
+  const tasks = usePlannerStore(state => state.tasks);
+  const setEditingTask = usePlannerStore(state => state.setEditingTask);
+  const editingTaskId = usePlannerStore(state => state.editingTaskId);
+
+  if (tasks.length === 0) {
+    return (
+      <div className="text-center py-12 text-slate-500">
+        <div className="text-lg font-medium mb-2">No tasks yet</div>
+        <div className="text-sm">
+          Enter product requests above and click "AI Auto-Fill Tasks"
+        </div>
+      </div>
     );
-  }, [assignedPotIds]);
+  }
 
-  // Handle auto-fill for a single crucible
-  const handleAutoFillCrucible = (crucibleId: string) => {
-    const crucible = crucibles.find((c) => c.id === crucibleId);
-    if (!crucible) return;
+  return (
+    <div className="space-y-3">
+      {tasks.map(task => (
+        <TaskCard
+          key={task.id}
+          task={task}
+          onEditPots={() => setEditingTask(task.id)}
+        />
+      ))}
 
-    const constraints = GRADE_CONSTRAINTS[crucible.targetGrade];
-    const eligiblePots = availablePots
-      .filter(
-        (p) =>
-          p.metrics.fe <= constraints.maxFe &&
-          p.metrics.si <= constraints.maxSi
-      )
-      .sort((a, b) => b.aiScore - a.aiScore);
+      {/* Pot Selector Modal */}
+      {editingTaskId && (
+        <PotSelectorModal
+          open={!!editingTaskId}
+          onClose={() => setEditingTask(null)}
+          taskId={editingTaskId}
+          productGrade={tasks.find(t => t.id === editingTaskId)?.productGrade || 'P1020'}
+          selectedPotIds={tasks.find(t => t.id === editingTaskId)?.pots || []}
+        />
+      )}
+    </div>
+  );
+}
 
-    // Add pots until weight limit or pot limit
-    let currentWeight = crucible.totalWeight;
-    const potsToAdd: PotAssignment[] = [];
+function AddTaskButton() {
+  const [selectedGrade, setSelectedGrade] = useState<ProductGrade | null>(null);
+  const addTask = usePlannerStore(state => state.addTask);
+  const tasks = usePlannerStore(state => state.tasks);
 
-    for (const pot of eligiblePots) {
-      if (crucible.pots.length + potsToAdd.length >= 6) break;
-      if (currentWeight + pot.weight > 10.5) continue;
+  const canAdd = tasks.length < TASK_CONSTRAINTS.maxTasksPerShift;
 
-      potsToAdd.push({
-        potId: pot.id,
-        potName: pot.id,
-        fe: pot.metrics.fe,
-        si: pot.metrics.si,
-        vn: pot.metrics.vn,
-        cr: pot.metrics.cr,
-        ni: pot.metrics.ni,
-        weight: pot.weight,
-      });
-      currentWeight += pot.weight;
+  const handleAdd = () => {
+    if (selectedGrade) {
+      addTask(selectedGrade);
+      setSelectedGrade(null);
     }
-
-    potsToAdd.forEach((pot) => addPotToCrucible(crucibleId, pot));
-  };
-
-  // Handle auto-fill all crucibles
-  const handleAutoFillAll = () => {
-    crucibles.forEach((crucible) => {
-      if (crucible.pots.length === 0 || !crucible.constraintsMet) {
-        handleAutoFillCrucible(crucible.id);
-      }
-    });
-  };
-
-  // Handle pot selection confirmation
-  const handlePotSelectionConfirm = (pots: PotAssignment[]) => {
-    if (selectedCrucibleId) {
-      pots.forEach((pot) => addPotToCrucible(selectedCrucibleId, pot));
-    }
-  };
-
-  // Handle edit orders save
-  const handleSaveOrders = () => {
-    setOrders(editedOrders);
-    closeEditOrdersModal();
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="flex items-center gap-2">
+      <Select
+        value={selectedGrade || ''}
+        onValueChange={(v) => setSelectedGrade(v as ProductGrade)}
+        disabled={!canAdd}
+      >
+        <SelectTrigger className="w-40">
+          <SelectValue placeholder="Select grade" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="PFA-NT">PFA-NT</SelectItem>
+          <SelectItem value="Wire Rod H-EC">Wire Rod</SelectItem>
+          <SelectItem value="Billet">Billet</SelectItem>
+          <SelectItem value="P1020">P1020</SelectItem>
+        </SelectContent>
+      </Select>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleAdd}
+        disabled={!selectedGrade || !canAdd}
+      >
+        <Plus className="w-4 h-4 mr-1" />
+        Add Task
+      </Button>
+    </div>
+  );
+}
+
+export function DailyTappingPlanner() {
+  const date = usePlannerStore(state => state.date);
+  const shift = usePlannerStore(state => state.shift);
+  const setShift = usePlannerStore(state => state.setShift);
+  const tasks = usePlannerStore(state => state.tasks);
+
+  const dateStr = date.toLocaleDateString('en-MY', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+  const passingTasks = tasks.filter(t => t.passesConstraints).length;
+  const canSubmit = tasks.length > 0 && passingTasks === tasks.length;
+
+  return (
+    <div className="space-y-6">
       <PageHeader
         title="Daily Tapping Planner"
-        description="V2 - Single page workflow"
+        description="V2 - Task-based workflow"
+        breadcrumbs={[
+          { label: 'Dashboard', href: '/' },
+          { label: 'Production', href: '/production' },
+          { label: 'Tapping Planner' },
+        ]}
         actions={
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm">
-              <Download className="h-4 w-4 mr-2" />
+              <Download className="w-4 h-4 mr-2" />
               Export
             </Button>
             <Button variant="outline" size="sm">
-              <Printer className="h-4 w-4 mr-2" />
-              Print
+              <Save className="w-4 h-4 mr-2" />
+              Save Draft
             </Button>
-            <Button>
-              <Save className="h-4 w-4 mr-2" />
-              Save & Submit
+            <Button disabled={!canSubmit}>
+              <Send className="w-4 h-4 mr-2" />
+              Submit
             </Button>
           </div>
         }
       />
 
-      {/* Date/Shift Selector */}
-      <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2">
-          <Clock className="h-5 w-5 text-gray-400" />
-          <Label>Date:</Label>
-          <Input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="w-40"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <Label>Shift:</Label>
-          <Tabs
-            value={selectedShift}
-            onValueChange={(v) => setSelectedShift(v as ShiftType)}
-          >
+      {/* Date and Shift Selection */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="text-lg font-medium">{dateStr}</div>
+          <Tabs value={shift} onValueChange={(v) => setShift(v as 'AM' | 'PM')}>
             <TabsList>
-              <TabsTrigger value="PM">PM</TabsTrigger>
-              <TabsTrigger value="AM">AM</TabsTrigger>
+              <TabsTrigger value="PM">PM Shift</TabsTrigger>
+              <TabsTrigger value="AM">AM Shift</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
       </div>
 
-      {/* Order Summary Cards */}
-      <OrderSummaryCards orders={orders} />
+      {/* Step 1: Product Requests */}
+      <ProductRequestForm />
 
-      {/* Action Bar */}
+      {/* Step 2: Task Assignments */}
       <Card>
-        <CardContent className="py-3">
+        <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Select
-                value={addCrucibleGrade}
-                onValueChange={(v) => setAddCrucibleGrade(v as ProductGrade)}
-              >
-                <SelectTrigger className="w-[140px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="PFA-NT">PFA-NT</SelectItem>
-                  <SelectItem value="Wire Rod H-EC">Wire Rod H-EC</SelectItem>
-                  <SelectItem value="Billet">Billet</SelectItem>
-                  <SelectItem value="P1020">P1020</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button onClick={() => addCrucible(addCrucibleGrade)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Crucible
-              </Button>
-
-              <div className="h-8 w-px bg-gray-200 mx-2" />
-
-              <Button variant="outline" onClick={handleAutoFillAll}>
-                <Sparkles className="h-4 w-4 mr-2" />
-                AI Auto-Fill All
-              </Button>
-              <Button variant="outline" onClick={clearAllCrucibles}>
-                <Trash2 className="h-4 w-4 mr-2" />
-                Clear All
-              </Button>
-            </div>
-
-            <Button variant="outline" onClick={openEditOrdersModal}>
-              <Edit className="h-4 w-4 mr-2" />
-              Edit Orders
-            </Button>
+            <CardTitle className="text-base">Step 2: Task Assignments</CardTitle>
+            <AddTaskButton />
           </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <ShiftSummaryBar />
+          <TaskList />
         </CardContent>
       </Card>
 
-      {/* Crucible Cards */}
-      <div className="space-y-4">
-        {crucibles.length === 0 ? (
-          <Card className="py-16">
-            <div className="text-center text-gray-500">
-              <p className="text-lg font-medium mb-2">No crucibles yet</p>
-              <p className="text-sm">Add a crucible to start planning</p>
-            </div>
-          </Card>
-        ) : (
-          crucibles.map((crucible) => (
-            <CrucibleCard
-              key={crucible.id}
-              crucible={crucible}
-              onAddPot={() => openPotSelectorModal(crucible.id)}
-              onAutoFill={() => handleAutoFillCrucible(crucible.id)}
-              onRemove={() => removeCrucible(crucible.id)}
-              onRemovePot={(potId) => removePotFromCrucible(crucible.id, potId)}
-            />
-          ))
-        )}
+      {/* Footer Summary */}
+      <div className="flex items-center justify-between p-4 bg-slate-100 rounded-lg">
+        <div className="flex items-center gap-4 text-sm">
+          <span className="font-medium">
+            {tasks.length} Tasks | {tasks.reduce((sum, t) => sum + t.totalWeight, 0).toFixed(1)} MT
+          </span>
+          <span className="text-slate-500">|</span>
+          <span className={cn(
+            canSubmit ? 'text-green-600' : 'text-yellow-600'
+          )}>
+            Passing: {passingTasks}/{tasks.length}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline">Save</Button>
+          <Button disabled={!canSubmit}>Submit</Button>
+        </div>
       </div>
-
-      {/* Footer Actions */}
-      {crucibles.length > 0 && (
-        <Card className="sticky bottom-4 shadow-lg">
-          <CardContent className="py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-6 text-sm">
-                <div>
-                  <span className="text-gray-500">Total Crucibles:</span>
-                  <span className="ml-2 font-medium">{crucibles.length}</span>
-                </div>
-                <div>
-                  <span className="text-gray-500">Total Weight:</span>
-                  <span className="ml-2 font-medium">
-                    {crucibles.reduce((sum, c) => sum + c.totalWeight, 0).toFixed(1)} MT
-                  </span>
-                </div>
-                <div>
-                  <span className="text-gray-500">Passing:</span>
-                  <span className="ml-2 font-medium text-green-600">
-                    {crucibles.filter((c) => c.constraintsMet).length}/{crucibles.length}
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline">Save Draft</Button>
-                <Button
-                  disabled={crucibles.some((c) => !c.constraintsMet)}
-                >
-                  Save & Submit
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Pot Selector Modal */}
-      {selectedCrucible && (
-        <PotSelectorModal
-          isOpen={isPotSelectorModalOpen}
-          onClose={closePotSelectorModal}
-          targetGrade={selectedCrucible.targetGrade}
-          availablePots={availablePots}
-          selectedPotIds={selectedCrucible.pots.map((p) => p.potId)}
-          onConfirm={handlePotSelectionConfirm}
-        />
-      )}
-
-      {/* Edit Orders Modal */}
-      <Dialog open={isEditOrdersModalOpen} onOpenChange={closeEditOrdersModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Orders</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {editedOrders.map((order) => (
-              <div key={order.id} className="flex items-center gap-4">
-                <Label className="w-32">{order.productGrade}</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    value={order.targetQuantity}
-                    onChange={(e) =>
-                      setEditedOrders(
-                        editedOrders.map((o) =>
-                          o.id === order.id
-                            ? { ...o, targetQuantity: Number(e.target.value) }
-                            : o
-                        )
-                      )
-                    }
-                    className="w-24"
-                  />
-                  <span className="text-gray-500">MT</span>
-                </div>
-              </div>
-            ))}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={closeEditOrdersModal}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveOrders}>Save Changes</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -1,195 +1,481 @@
 import { create } from 'zustand';
-import type { CrucibleV2, PotAssignment, ProductGrade, ShiftType, Order } from '@/types';
-import { GRADE_CONSTRAINTS, CRUCIBLE_CONSTRAINTS } from '@/data/constants';
+import type {
+  ProductGrade,
+  ProductRequest,
+  TaskV2,
+  TaskPotDetail,
+  ShiftSummary,
+  FulfillmentStatus,
+  TaskStatus
+} from '@/types';
+import { TASK_CONSTRAINTS, PRODUCT_CONSTRAINTS, PRODUCT_GRADE_INFO } from '@/data/constants';
+import { getPots } from '@/data/generators';
 
-interface PlannerStore {
-  // State
-  selectedDate: string;
-  selectedShift: ShiftType;
-  crucibles: CrucibleV2[];
-  orders: Order[];
-  selectedCrucibleId: string | null;
-  isEditOrdersModalOpen: boolean;
-  isPotSelectorModalOpen: boolean;
+const PRODUCT_GRADES: ProductGrade[] = ['PFA-NT', 'Wire Rod H-EC', 'Billet', 'P1020'];
 
-  // Actions
-  setSelectedDate: (date: string) => void;
-  setSelectedShift: (shift: ShiftType) => void;
-  setCrucibles: (crucibles: CrucibleV2[]) => void;
-  setOrders: (orders: Order[]) => void;
-
-  // Crucible Actions
-  addCrucible: (targetGrade: ProductGrade) => void;
-  removeCrucible: (crucibleId: string) => void;
-  updateCrucible: (crucibleId: string, updates: Partial<CrucibleV2>) => void;
-  clearAllCrucibles: () => void;
-
-  // Pot Assignment Actions
-  addPotToCrucible: (crucibleId: string, pot: PotAssignment) => void;
-  removePotFromCrucible: (crucibleId: string, potId: string) => void;
-  selectCrucible: (crucibleId: string | null) => void;
-
-  // Modal Actions
-  openEditOrdersModal: () => void;
-  closeEditOrdersModal: () => void;
-  openPotSelectorModal: (crucibleId: string) => void;
-  closePotSelectorModal: () => void;
-
-  // Order Actions
-  updateOrderQuantity: (orderId: string, quantity: number) => void;
+function generateId(): string {
+  return Math.random().toString(36).substring(2, 9);
 }
 
-function calculateBlendedValues(pots: PotAssignment[]) {
-  if (pots.length === 0) {
-    return { blendedFe: 0, blendedSi: 0, blendedVn: 0, blendedCr: 0, blendedNi: 0, totalWeight: 0 };
-  }
+function calculateTasksNeeded(targetMT: number): number {
+  if (targetMT <= 0) return 0;
+  return Math.ceil(targetMT / TASK_CONSTRAINTS.avgWeightPerTask);
+}
 
-  const totalWeight = pots.reduce((sum, p) => sum + p.weight, 0);
-  const blendedFe = pots.reduce((sum, p) => sum + p.fe * p.weight, 0) / totalWeight;
-  const blendedSi = pots.reduce((sum, p) => sum + p.si * p.weight, 0) / totalWeight;
-  const blendedVn = pots.reduce((sum, p) => sum + p.vn * p.weight, 0) / totalWeight;
-  const blendedCr = pots.reduce((sum, p) => sum + p.cr * p.weight, 0) / totalWeight;
-  const blendedNi = pots.reduce((sum, p) => sum + p.ni * p.weight, 0) / totalWeight;
+function calculateFulfillmentStatus(tasksNeeded: number, tasksAssigned: number): FulfillmentStatus {
+  if (tasksAssigned === 0) return 'pending';
+  if (tasksAssigned < tasksNeeded) return 'partial';
+  if (tasksAssigned > tasksNeeded) return 'exceeded';
+  return 'fulfilled';
+}
+
+function calculateBlendedChemistry(potDetails: TaskPotDetail[]): { fe: number; si: number } {
+  if (potDetails.length === 0) return { fe: 0, si: 0 };
+
+  const totalWeight = potDetails.reduce((sum, p) => sum + p.estimatedWeight, 0);
+  if (totalWeight === 0) return { fe: 0, si: 0 };
+
+  const weightedFe = potDetails.reduce((sum, p) => sum + p.fe * p.estimatedWeight, 0) / totalWeight;
+  const weightedSi = potDetails.reduce((sum, p) => sum + p.si * p.estimatedWeight, 0) / totalWeight;
 
   return {
-    blendedFe: Number(blendedFe.toFixed(4)),
-    blendedSi: Number(blendedSi.toFixed(4)),
-    blendedVn: Number(blendedVn.toFixed(4)),
-    blendedCr: Number(blendedCr.toFixed(4)),
-    blendedNi: Number(blendedNi.toFixed(4)),
-    totalWeight: Number(totalWeight.toFixed(2)),
+    fe: Number(weightedFe.toFixed(4)),
+    si: Number(weightedSi.toFixed(4)),
   };
 }
 
-function validateConstraints(crucible: CrucibleV2): { constraintsMet: boolean; constraintViolations: string[] } {
-  const constraints = GRADE_CONSTRAINTS[crucible.targetGrade];
-  const violations: string[] = [];
+function validateTaskConstraints(
+  task: TaskV2,
+  productGrade: ProductGrade
+): { passes: boolean; messages: string[] } {
+  const messages: string[] = [];
+  const constraints = PRODUCT_CONSTRAINTS[productGrade];
 
-  if (crucible.blendedFe > constraints.maxFe) {
-    violations.push(`Fe ${crucible.blendedFe.toFixed(3)} exceeds max ${constraints.maxFe}`);
-  }
-  if (crucible.blendedSi > constraints.maxSi) {
-    violations.push(`Si ${crucible.blendedSi.toFixed(3)} exceeds max ${constraints.maxSi}`);
-  }
-  if (crucible.totalWeight > CRUCIBLE_CONSTRAINTS.maxWeight) {
-    violations.push(`Weight ${crucible.totalWeight} MT exceeds max ${CRUCIBLE_CONSTRAINTS.maxWeight} MT`);
-  }
-  if (crucible.pots.length < CRUCIBLE_CONSTRAINTS.minPots && crucible.pots.length > 0) {
-    violations.push(`Minimum ${CRUCIBLE_CONSTRAINTS.minPots} pots required`);
-  }
-  if (crucible.pots.length > CRUCIBLE_CONSTRAINTS.maxPots) {
-    violations.push(`Maximum ${CRUCIBLE_CONSTRAINTS.maxPots} pots allowed`);
+  // Check pot count
+  if (task.pots.length !== TASK_CONSTRAINTS.potsPerTask) {
+    messages.push(`Requires exactly ${TASK_CONSTRAINTS.potsPerTask} pots (has ${task.pots.length})`);
   }
 
-  return { constraintsMet: violations.length === 0, constraintViolations: violations };
+  // Check Fe constraint
+  if (task.blendedFe > constraints.maxFe) {
+    messages.push(`Fe ${task.blendedFe.toFixed(3)}% exceeds max ${constraints.maxFe}%`);
+  }
+
+  // Check Si constraint
+  if (task.blendedSi > constraints.maxSi) {
+    messages.push(`Si ${task.blendedSi.toFixed(3)}% exceeds max ${constraints.maxSi}%`);
+  }
+
+  // Check weight
+  if (task.totalWeight > TASK_CONSTRAINTS.maxWeight) {
+    messages.push(`Weight ${task.totalWeight.toFixed(1)} MT exceeds max ${TASK_CONSTRAINTS.maxWeight} MT`);
+  }
+
+  return {
+    passes: messages.length === 0,
+    messages,
+  };
 }
 
-let crucibleCounter = 1;
+function getTaskStatus(task: TaskV2): TaskStatus {
+  if (task.pots.length < TASK_CONSTRAINTS.potsPerTask) return 'incomplete';
+  if (!task.passesConstraints) return 'draft';
+  return 'ready';
+}
 
-export const usePlannerStore = create<PlannerStore>((set) => ({
-  selectedDate: new Date().toISOString().split('T')[0],
-  selectedShift: 'PM',
-  crucibles: [],
-  orders: [],
-  selectedCrucibleId: null,
-  isEditOrdersModalOpen: false,
-  isPotSelectorModalOpen: false,
+function calculateShiftSummary(tasks: TaskV2[], requests: ProductRequest[]): ShiftSummary {
+  const tasksByGrade: Record<ProductGrade, number> = {
+    'PFA-NT': 0,
+    'Wire Rod H-EC': 0,
+    'Billet': 0,
+    'P1020': 0,
+  };
 
-  setSelectedDate: (date) => set({ selectedDate: date }),
-  setSelectedShift: (shift) => set({ selectedShift: shift }),
-  setCrucibles: (crucibles) => set({ crucibles }),
-  setOrders: (orders) => set({ orders }),
+  tasks.forEach(task => {
+    tasksByGrade[task.productGrade]++;
+  });
 
-  addCrucible: (targetGrade) => {
-    const newCrucible: CrucibleV2 = {
-      id: `C-${String(crucibleCounter++).padStart(3, '0')}`,
-      targetGrade,
+  const totalTasks = tasks.length;
+  const totalPots = tasks.reduce((sum, t) => sum + t.pots.length, 0);
+  const totalWeight = tasks.reduce((sum, t) => sum + t.totalWeight, 0);
+
+  return {
+    totalTasks,
+    maxTasks: TASK_CONSTRAINTS.maxTasksPerShift,
+    totalPots,
+    maxPots: TASK_CONSTRAINTS.maxPotsPerShift,
+    totalWeight: Number(totalWeight.toFixed(1)),
+    tasksByGrade,
+    isOverLimit: totalTasks > TASK_CONSTRAINTS.maxTasksPerShift,
+  };
+}
+
+interface PlannerStore {
+  // State
+  date: Date;
+  shift: 'AM' | 'PM';
+  productRequests: ProductRequest[];
+  tasks: TaskV2[];
+  shiftSummary: ShiftSummary;
+  editingTaskId: string | null;
+
+  // Actions
+  setDate: (date: Date) => void;
+  setShift: (shift: 'AM' | 'PM') => void;
+  setProductRequest: (grade: ProductGrade, targetMT: number) => void;
+  clearAllRequests: () => void;
+  aiAutoFillAll: () => void;
+  addTask: (grade: ProductGrade) => void;
+  removeTask: (taskId: string) => void;
+  setTaskPots: (taskId: string, potIds: string[]) => void;
+  addPotToTask: (taskId: string, potId: string) => void;
+  removePotFromTask: (taskId: string, potId: string) => void;
+  setEditingTask: (taskId: string | null) => void;
+  clearAllTasks: () => void;
+  recalculateSummary: () => void;
+}
+
+function createInitialRequests(): ProductRequest[] {
+  return PRODUCT_GRADES.map(grade => ({
+    id: generateId(),
+    productGrade: grade,
+    targetMT: 0,
+    tasksNeeded: 0,
+    tasksAssigned: 0,
+    fulfillmentStatus: 'pending' as FulfillmentStatus,
+  }));
+}
+
+function createInitialSummary(): ShiftSummary {
+  return {
+    totalTasks: 0,
+    maxTasks: TASK_CONSTRAINTS.maxTasksPerShift,
+    totalPots: 0,
+    maxPots: TASK_CONSTRAINTS.maxPotsPerShift,
+    totalWeight: 0,
+    tasksByGrade: { 'PFA-NT': 0, 'Wire Rod H-EC': 0, 'Billet': 0, 'P1020': 0 },
+    isOverLimit: false,
+  };
+}
+
+export const usePlannerStore = create<PlannerStore>((set, get) => ({
+  date: new Date(),
+  shift: 'PM',
+  productRequests: createInitialRequests(),
+  tasks: [],
+  shiftSummary: createInitialSummary(),
+  editingTaskId: null,
+
+  setDate: (date) => set({ date }),
+
+  setShift: (shift) => set({ shift }),
+
+  setProductRequest: (grade, targetMT) => {
+    set((state) => {
+      const requests = state.productRequests.map(req => {
+        if (req.productGrade !== grade) return req;
+
+        const tasksNeeded = calculateTasksNeeded(targetMT);
+        return {
+          ...req,
+          targetMT,
+          tasksNeeded,
+          fulfillmentStatus: calculateFulfillmentStatus(tasksNeeded, req.tasksAssigned),
+        };
+      });
+
+      return { productRequests: requests };
+    });
+  },
+
+  clearAllRequests: () => {
+    set({
+      productRequests: createInitialRequests(),
+      tasks: [],
+      shiftSummary: createInitialSummary(),
+    });
+  },
+
+  aiAutoFillAll: () => {
+    const { productRequests } = get();
+    const allPots = getPots();
+
+    // Get eligible pots (not shutdown, not critical)
+    const eligiblePots = allPots.filter(p =>
+      p.riskLevel !== 'shutdown' &&
+      p.riskLevel !== 'critical'
+    );
+
+    // Sort eligible pots by AI score (best first)
+    const sortedPots = [...eligiblePots].sort((a, b) => b.aiScore - a.aiScore);
+
+    const usedPotIds = new Set<string>();
+    const newTasks: TaskV2[] = [];
+    let taskCount = 0;
+
+    // Process requests by priority (PFA-NT first, P1020 last)
+    const sortedRequests = [...productRequests]
+      .filter(r => r.tasksNeeded > 0)
+      .sort((a, b) =>
+        PRODUCT_GRADE_INFO[a.productGrade].priority -
+        PRODUCT_GRADE_INFO[b.productGrade].priority
+      );
+
+    for (const request of sortedRequests) {
+      const constraints = PRODUCT_CONSTRAINTS[request.productGrade];
+
+      // Find pots that meet this grade's chemistry requirements
+      const gradePots = sortedPots.filter(p =>
+        !usedPotIds.has(p.id) &&
+        p.metrics.fe <= constraints.maxFe &&
+        p.metrics.si <= constraints.maxSi
+      );
+
+      // Create tasks for this grade
+      const tasksToCreate = Math.min(
+        request.tasksNeeded,
+        TASK_CONSTRAINTS.maxTasksPerShift - taskCount,
+        Math.floor(gradePots.length / TASK_CONSTRAINTS.potsPerTask)
+      );
+
+      for (let i = 0; i < tasksToCreate; i++) {
+        const taskPots = gradePots.slice(
+          i * TASK_CONSTRAINTS.potsPerTask,
+          (i + 1) * TASK_CONSTRAINTS.potsPerTask
+        );
+
+        if (taskPots.length < TASK_CONSTRAINTS.potsPerTask) break;
+
+        taskPots.forEach(p => usedPotIds.add(p.id));
+
+        const potDetails: TaskPotDetail[] = taskPots.map(p => ({
+          potId: p.id,
+          fe: p.metrics.fe,
+          si: p.metrics.si,
+          aiScore: p.aiScore,
+          estimatedWeight: TASK_CONSTRAINTS.avgWeightPerPot,
+        }));
+
+        const { fe, si } = calculateBlendedChemistry(potDetails);
+        const totalWeight = Number((potDetails.length * TASK_CONSTRAINTS.avgWeightPerPot).toFixed(1));
+
+        const task: TaskV2 = {
+          id: `T-${String(taskCount + 1).padStart(3, '0')}`,
+          productGrade: request.productGrade,
+          pots: taskPots.map(p => p.id),
+          potDetails,
+          totalWeight,
+          blendedFe: fe,
+          blendedSi: si,
+          status: 'draft',
+          passesConstraints: false,
+          constraintMessages: [],
+        };
+
+        const validation = validateTaskConstraints(task, request.productGrade);
+        task.passesConstraints = validation.passes;
+        task.constraintMessages = validation.messages;
+        task.status = getTaskStatus(task);
+
+        newTasks.push(task);
+        taskCount++;
+
+        if (taskCount >= TASK_CONSTRAINTS.maxTasksPerShift) break;
+      }
+
+      if (taskCount >= TASK_CONSTRAINTS.maxTasksPerShift) break;
+    }
+
+    // Update requests with assigned task counts
+    const updatedRequests = productRequests.map(req => {
+      const assigned = newTasks.filter(t => t.productGrade === req.productGrade).length;
+      return {
+        ...req,
+        tasksAssigned: assigned,
+        fulfillmentStatus: calculateFulfillmentStatus(req.tasksNeeded, assigned),
+      };
+    });
+
+    set({
+      tasks: newTasks,
+      productRequests: updatedRequests,
+      shiftSummary: calculateShiftSummary(newTasks, updatedRequests),
+    });
+  },
+
+  addTask: (grade) => {
+    const { tasks } = get();
+
+    if (tasks.length >= TASK_CONSTRAINTS.maxTasksPerShift) return;
+
+    const newTask: TaskV2 = {
+      id: `T-${String(tasks.length + 1).padStart(3, '0')}`,
+      productGrade: grade,
       pots: [],
+      potDetails: [],
       totalWeight: 0,
       blendedFe: 0,
       blendedSi: 0,
-      blendedVn: 0,
-      blendedCr: 0,
-      blendedNi: 0,
-      constraintsMet: false,
-      constraintViolations: ['Minimum 2 pots required'],
+      status: 'incomplete',
+      passesConstraints: false,
+      constraintMessages: [`Requires exactly ${TASK_CONSTRAINTS.potsPerTask} pots (has 0)`],
     };
-    set((state) => ({ crucibles: [...state.crucibles, newCrucible] }));
-  },
 
-  removeCrucible: (crucibleId) => {
-    set((state) => ({
-      crucibles: state.crucibles.filter((c) => c.id !== crucibleId),
-      selectedCrucibleId: state.selectedCrucibleId === crucibleId ? null : state.selectedCrucibleId,
-    }));
-  },
-
-  updateCrucible: (crucibleId, updates) => {
-    set((state) => ({
-      crucibles: state.crucibles.map((c) =>
-        c.id === crucibleId ? { ...c, ...updates } : c
-      ),
-    }));
-  },
-
-  clearAllCrucibles: () => {
-    set({ crucibles: [], selectedCrucibleId: null });
-    crucibleCounter = 1;
-  },
-
-  addPotToCrucible: (crucibleId, pot) => {
     set((state) => {
-      const crucibles = state.crucibles.map((c) => {
-        if (c.id !== crucibleId) return c;
-
-        // Check if pot already exists
-        if (c.pots.some((p) => p.potId === pot.potId)) return c;
-
-        const newPots = [...c.pots, pot];
-        const blended = calculateBlendedValues(newPots);
-        const updatedCrucible = { ...c, pots: newPots, ...blended };
-        const validation = validateConstraints(updatedCrucible);
-
-        return { ...updatedCrucible, ...validation };
+      const newTasks = [...state.tasks, newTask];
+      const updatedRequests = state.productRequests.map(req => {
+        if (req.productGrade !== grade) return req;
+        const assigned = newTasks.filter(t => t.productGrade === grade).length;
+        return {
+          ...req,
+          tasksAssigned: assigned,
+          fulfillmentStatus: calculateFulfillmentStatus(req.tasksNeeded, assigned),
+        };
       });
 
-      return { crucibles };
+      return {
+        tasks: newTasks,
+        productRequests: updatedRequests,
+        shiftSummary: calculateShiftSummary(newTasks, updatedRequests),
+        editingTaskId: newTask.id,
+      };
     });
   },
 
-  removePotFromCrucible: (crucibleId, potId) => {
+  removeTask: (taskId) => {
     set((state) => {
-      const crucibles = state.crucibles.map((c) => {
-        if (c.id !== crucibleId) return c;
+      const taskToRemove = state.tasks.find(t => t.id === taskId);
+      if (!taskToRemove) return state;
 
-        const newPots = c.pots.filter((p) => p.potId !== potId);
-        const blended = calculateBlendedValues(newPots);
-        const updatedCrucible = { ...c, pots: newPots, ...blended };
-        const validation = validateConstraints(updatedCrucible);
-
-        return { ...updatedCrucible, ...validation };
+      const newTasks = state.tasks.filter(t => t.id !== taskId);
+      const updatedRequests = state.productRequests.map(req => {
+        if (req.productGrade !== taskToRemove.productGrade) return req;
+        const assigned = newTasks.filter(t => t.productGrade === req.productGrade).length;
+        return {
+          ...req,
+          tasksAssigned: assigned,
+          fulfillmentStatus: calculateFulfillmentStatus(req.tasksNeeded, assigned),
+        };
       });
 
-      return { crucibles };
+      return {
+        tasks: newTasks,
+        productRequests: updatedRequests,
+        shiftSummary: calculateShiftSummary(newTasks, updatedRequests),
+        editingTaskId: state.editingTaskId === taskId ? null : state.editingTaskId,
+      };
     });
   },
 
-  selectCrucible: (crucibleId) => set({ selectedCrucibleId: crucibleId }),
+  setTaskPots: (taskId, potIds) => {
+    const allPots = getPots();
 
-  openEditOrdersModal: () => set({ isEditOrdersModalOpen: true }),
-  closeEditOrdersModal: () => set({ isEditOrdersModalOpen: false }),
+    set((state) => {
+      const newTasks = state.tasks.map(task => {
+        if (task.id !== taskId) return task;
 
-  openPotSelectorModal: (crucibleId) => set({
-    isPotSelectorModalOpen: true,
-    selectedCrucibleId: crucibleId,
-  }),
-  closePotSelectorModal: () => set({ isPotSelectorModalOpen: false }),
+        const selectedPots = potIds
+          .map(id => allPots.find(p => p.id === id))
+          .filter(Boolean) as typeof allPots;
 
-  updateOrderQuantity: (orderId, quantity) => {
+        const potDetails: TaskPotDetail[] = selectedPots.map(p => ({
+          potId: p.id,
+          fe: p.metrics.fe,
+          si: p.metrics.si,
+          aiScore: p.aiScore,
+          estimatedWeight: TASK_CONSTRAINTS.avgWeightPerPot,
+        }));
+
+        const { fe, si } = calculateBlendedChemistry(potDetails);
+        const totalWeight = Number((potDetails.length * TASK_CONSTRAINTS.avgWeightPerPot).toFixed(1));
+
+        const updatedTask: TaskV2 = {
+          ...task,
+          pots: potIds,
+          potDetails,
+          totalWeight,
+          blendedFe: fe,
+          blendedSi: si,
+          passesConstraints: false,
+          constraintMessages: [],
+          status: 'draft',
+        };
+
+        const validation = validateTaskConstraints(updatedTask, task.productGrade);
+        updatedTask.passesConstraints = validation.passes;
+        updatedTask.constraintMessages = validation.messages;
+        updatedTask.status = getTaskStatus(updatedTask);
+
+        return updatedTask;
+      });
+
+      return {
+        tasks: newTasks,
+        shiftSummary: calculateShiftSummary(newTasks, state.productRequests),
+      };
+    });
+  },
+
+  addPotToTask: (taskId, potId) => {
+    const { tasks } = get();
+    const task = tasks.find(t => t.id === taskId);
+    if (!task || task.pots.length >= TASK_CONSTRAINTS.potsPerTask) return;
+
+    const newPotIds = [...task.pots, potId];
+    get().setTaskPots(taskId, newPotIds);
+  },
+
+  removePotFromTask: (taskId, potId) => {
+    const { tasks } = get();
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    const newPotIds = task.pots.filter(id => id !== potId);
+    get().setTaskPots(taskId, newPotIds);
+  },
+
+  setEditingTask: (taskId) => set({ editingTaskId: taskId }),
+
+  clearAllTasks: () => {
+    set((state) => {
+      const updatedRequests = state.productRequests.map(req => ({
+        ...req,
+        tasksAssigned: 0,
+        fulfillmentStatus: calculateFulfillmentStatus(req.tasksNeeded, 0),
+      }));
+
+      return {
+        tasks: [],
+        productRequests: updatedRequests,
+        shiftSummary: createInitialSummary(),
+        editingTaskId: null,
+      };
+    });
+  },
+
+  recalculateSummary: () => {
     set((state) => ({
-      orders: state.orders.map((o) =>
-        o.id === orderId ? { ...o, targetQuantity: quantity } : o
-      ),
+      shiftSummary: calculateShiftSummary(state.tasks, state.productRequests),
     }));
   },
 }));
+
+// Helper functions for components
+export function getEligiblePotsForGrade(grade: ProductGrade, excludePotIds: string[] = []) {
+  const allPots = getPots();
+  const constraints = PRODUCT_CONSTRAINTS[grade];
+
+  return allPots
+    .filter(p =>
+      p.riskLevel !== 'shutdown' &&
+      p.riskLevel !== 'critical' &&
+      p.metrics.fe <= constraints.maxFe &&
+      p.metrics.si <= constraints.maxSi &&
+      !excludePotIds.includes(p.id)
+    )
+    .sort((a, b) => b.aiScore - a.aiScore);
+}
+
+export function getTotalTasksNeeded(requests: ProductRequest[]): number {
+  return requests.reduce((sum, r) => sum + r.tasksNeeded, 0);
+}
