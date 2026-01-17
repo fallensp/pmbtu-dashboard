@@ -155,7 +155,7 @@ export function CrucibleCard({
                 ))}
 
                 {/* Blended Row */}
-                <TableRow className="bg-gray-50 font-medium">
+                <TableRow className="bg-gray-100 font-medium border-t-2 border-gray-300">
                   <TableCell>Blended</TableCell>
                   <TableCell
                     className={cn(
@@ -197,7 +197,7 @@ export function CrucibleCard({
 
           {/* Constraint Violations */}
           {crucible.constraintViolations.length > 0 && (
-            <div className="mt-3 p-2 bg-red-50 rounded-lg">
+            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
               <p className="text-xs font-medium text-red-700 mb-1">Violations:</p>
               <ul className="text-xs text-red-600">
                 {crucible.constraintViolations.map((v, i) => (

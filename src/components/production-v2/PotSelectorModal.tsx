@@ -140,7 +140,7 @@ export function PotSelectorModal({
 
           {/* AI Recommendations */}
           {aiRecommended.length > 0 && (
-            <div className="p-3 bg-blue-50 rounded-lg">
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
               <div className="flex items-center gap-2 mb-2">
                 <Sparkles className="h-4 w-4 text-blue-600" />
                 <span className="text-sm font-medium text-blue-700">AI Recommendations</span>
@@ -152,10 +152,10 @@ export function PotSelectorModal({
                     variant={selectedPots.has(pot.id) ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => togglePot(pot.id)}
-                    className="text-xs"
+                    className="text-xs bg-white"
                   >
                     {pot.id}
-                    <Badge variant="secondary" className="ml-1">
+                    <Badge variant="secondary" className="ml-1 bg-gray-100">
                       {pot.aiScore}
                     </Badge>
                   </Button>
